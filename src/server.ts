@@ -17,12 +17,17 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "../public")));
 
-await initDb();
+initDb().catch(err => {
+  console.error("Failed to initialize database:", err);
+  process.exit(1);
+});
 
 app.get("/api/search", async (req, res) => {
   try {
     const query = req.query.q as string;
-    if (!query) return res.status(400).json({ error: "Query parameter required" });
+    if (!query) {
+      return res.status(400).json({ error: "Query parameter required" });
+    }
     const results = await searchStocks(query);
     res.json(results);
   } catch (error) {
@@ -37,50 +42,111 @@ app.get("/api/analyze/:symbol", async (req, res) => {
 
     try {
       let stockId: number;
-      const stockResult = await client.query("SELECT id FROM stocks WHERE symbol = $1", [symbol]);
+      const stockResult = await client.query(
+        "SELECT id FROM stocks WHERE symbol = $1",
+        [symbol]
+      );
 
       if (stockResult.rows.length === 0) {
         const stockData = await getStockData(symbol);
-        const insertResult = await client.query("INSERT INTO stocks (symbol, name) VALUES ($1, $2) RETURNING id", [symbol, stockData.name]);
+        const insertResult = await client.query(
+          "INSERT INTO stocks (symbol, name) VALUES ($1, $2) RETURNING id",
+          [symbol, stockData.name]
+        );
         stockId = insertResult.rows[0].id;
 
         const historicalData = await getHistoricalData(symbol, 365);
         for (const data of historicalData) {
           await client.query(
-            `INSERT INTO price_history (stock_id, date, open, high, low, close, volume) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (stock_id, date) DO UPDATE SET open = $3, high = $4, low = $5, close = $6, volume = $7`,
-            [stockId, data.date, data.open, data.high, data.low, data.close, data.volume]
+            `INSERT INTO price_history (stock_id, date, open, high, low, close, volume)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (stock_id, date) DO UPDATE SET
+             open = $3, high = $4, low = $5, close = $6, volume = $7`,
+            [
+              stockId,
+              data.date,
+              data.open,
+              data.high,
+              data.low,
+              data.close,
+              data.volume,
+            ]
           );
         }
       } else {
         stockId = stockResult.rows[0].id;
       }
 
-      const priceResult = await client.query(`SELECT date, open, high, low, close, volume FROM price_history WHERE stock_id = $1 ORDER BY date DESC LIMIT 365`, [stockId]);
+      const priceResult = await client.query(
+        `SELECT date, open, high, low, close, volume FROM price_history
+         WHERE stock_id = $1 ORDER BY date DESC LIMIT 365`,
+        [stockId]
+      );
 
-      const priceData = priceResult.rows.reverse().map((row) => ({
-        date: row.date,
-        open: parseFloat(row.open),
-        high: parseFloat(row.high),
-        low: parseFloat(row.low),
-        close: parseFloat(row.close),
-        volume: parseInt(row.volume),
-      }));
+      const priceData = priceResult.rows
+        .reverse()
+        .map((row) => ({
+          date: row.date,
+          open: parseFloat(row.open),
+          high: parseFloat(row.high),
+          low: parseFloat(row.low),
+          close: parseFloat(row.close),
+          volume: parseInt(row.volume),
+        }));
 
-      if (priceData.length === 0) return res.status(404).json({ error: "No price data available" });
+      if (priceData.length === 0) {
+        return res.status(404).json({ error: "No price data available" });
+      }
 
       const indicators = calculateAllIndicators(priceData);
       const latestDate = priceData[priceData.length - 1].date;
 
       await client.query(
-        `INSERT INTO technical_indicators (stock_id, date, rsi, macd, macd_signal, macd_histogram, sma_20, sma_50, sma_200, ema_12, ema_26, bollinger_upper, bollinger_middle, bollinger_lower, atr, stochastic_k, stochastic_d) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT (stock_id, date) DO UPDATE SET rsi = $3, macd = $4, macd_signal = $5, macd_histogram = $6, sma_20 = $7, sma_50 = $8, sma_200 = $9, ema_12 = $10, ema_26 = $11, bollinger_upper = $12, bollinger_middle = $13, bollinger_lower = $14, atr = $15, stochastic_k = $16, stochastic_d = $17`,
-        [stockId, latestDate, indicators.rsi, indicators.macd, indicators.macdSignal, indicators.macdHistogram, indicators.sma20, indicators.sma50, indicators.sma200, indicators.ema12, indicators.ema26, indicators.bollingerUpper, indicators.bollingerMiddle, indicators.bollingerLower, indicators.atr, indicators.stochasticK, indicators.stochasticD]
+        `INSERT INTO technical_indicators (stock_id, date, rsi, macd, macd_signal, macd_histogram,
+         sma_20, sma_50, sma_200, ema_12, ema_26, bollinger_upper, bollinger_middle, bollinger_lower,
+         atr, stochastic_k, stochastic_d)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+         ON CONFLICT (stock_id, date) DO UPDATE SET
+         rsi = $3, macd = $4, macd_signal = $5, macd_histogram = $6, sma_20 = $7, sma_50 = $8,
+         sma_200 = $9, ema_12 = $10, ema_26 = $11, bollinger_upper = $12, bollinger_middle = $13,
+         bollinger_lower = $14, atr = $15, stochastic_k = $16, stochastic_d = $17`,
+        [
+          stockId,
+          latestDate,
+          indicators.rsi,
+          indicators.macd,
+          indicators.macdSignal,
+          indicators.macdHistogram,
+          indicators.sma20,
+          indicators.sma50,
+          indicators.sma200,
+          indicators.ema12,
+          indicators.ema26,
+          indicators.bollingerUpper,
+          indicators.bollingerMiddle,
+          indicators.bollingerLower,
+          indicators.atr,
+          indicators.stochasticK,
+          indicators.stochasticD,
+        ]
       );
 
       const signals = analyzePatterns(priceData, indicators);
       const signalStrength = calculateSignalStrength(signals);
 
       for (const signal of signals) {
-        await client.query(`INSERT INTO signals (stock_id, date, signal_type, confidence, description, action) VALUES ($1, $2, $3, $4, $5, $6)`, [stockId, latestDate, signal.type, signal.confidence, signal.description, signal.action]);
+        await client.query(
+          `INSERT INTO signals (stock_id, date, signal_type, confidence, description, action)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            stockId,
+            latestDate,
+            signal.type,
+            signal.confidence,
+            signal.description,
+            signal.action,
+          ]
+        );
       }
 
       res.json({
@@ -104,8 +170,16 @@ app.get("/api/signals/:symbol", async (req, res) => {
   try {
     const { symbol } = req.params;
     const client = await pool.connect();
+
     try {
-      const result = await client.query(`SELECT s.* FROM signals s JOIN stocks st ON s.stock_id = st.id WHERE st.symbol = $1 ORDER BY s.date DESC LIMIT 100`, [symbol]);
+      const result = await client.query(
+        `SELECT s.* FROM signals s
+         JOIN stocks st ON s.stock_id = st.id
+         WHERE st.symbol = $1
+         ORDER BY s.date DESC LIMIT 100`,
+        [symbol]
+      );
+
       res.json(result.rows);
     } finally {
       client.release();
