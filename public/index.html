@@ -118,7 +118,7 @@
       </div>
 
       <div class="tabs">
-        <button class="tab-btn active" onclick="showTab('screener')">Top 100 Stocks</button>
+        <button class="tab-btn active" onclick="showTab('screener')">Top 50 Stocks</button>
         <button class="tab-btn" onclick="showTab('analyzer')">Detailed Analysis</button>
       </div>
 
@@ -248,7 +248,7 @@
 
     async function loadScreener() {
       const content = document.getElementById('screenerContent');
-      content.innerHTML = '<div class="loading">Loading top 100 stocks...</div>';
+      content.innerHTML = '<div class="loading">Loading top 50 stocks...</div>';
 
       try {
         const res = await fetch('/api/screener', {
@@ -336,28 +336,34 @@
     }
 
     function displayAnalysis(data) {
+      if (!data || !data.indicators) {
+        document.getElementById('analysisContent').innerHTML = '<div style="color: #e74c3c; padding: 20px;">Error: Invalid data received</div>';
+        return;
+      }
+
+      const ind = data.indicators;
       let html = `
         <button class="back-btn" onclick="showTab('screener')">← Back to Screener</button>
         <div class="analysis-header">
           <h2>${data.symbol}</h2>
-          <div class="price-display">$${data.currentPrice.toFixed(2)}</div>
+          <div class="price-display">$${(data.currentPrice || 0).toFixed(2)}</div>
         </div>
         <div class="indicators-grid">
-          <div class="indicator-card"><h4>RSI</h4><div class="value">${data.indicators.rsi.toFixed(1)}</div></div>
-          <div class="indicator-card"><h4>MACD</h4><div class="value">${data.indicators.macd.toFixed(2)}</div></div>
-          <div class="indicator-card"><h4>SMA 20</h4><div class="value">$${data.indicators.sma20.toFixed(2)}</div></div>
-          <div class="indicator-card"><h4>SMA 50</h4><div class="value">$${data.indicators.sma50.toFixed(2)}</div></div>
-          <div class="indicator-card"><h4>SMA 200</h4><div class="value">$${data.indicators.sma200.toFixed(2)}</div></div>
-          <div class="indicator-card"><h4>Bollinger Upper</h4><div class="value">$${data.indicators.bollingerUpper.toFixed(2)}</div></div>
-          <div class="indicator-card"><h4>Bollinger Lower</h4><div class="value">$${data.indicators.bollingerLower.toFixed(2)}</div></div>
-          <div class="indicator-card"><h4>ATR</h4><div class="value">${data.indicators.atr.toFixed(2)}</div></div>
-          <div class="indicator-card"><h4>ADX</h4><div class="value">${data.indicators.adx.toFixed(1)}</div></div>
-          <div class="indicator-card"><h4>CCI</h4><div class="value">${data.indicators.cci.toFixed(1)}</div></div>
-          <div class="indicator-card"><h4>ROC</h4><div class="value">${data.indicators.roc.toFixed(2)}%</div></div>
-          <div class="indicator-card"><h4>Williams %R</h4><div class="value">${data.indicators.williams.toFixed(1)}</div></div>
+          <div class="indicator-card"><h4>RSI</h4><div class="value">${(ind.rsi || 0).toFixed(1)}</div></div>
+          <div class="indicator-card"><h4>MACD</h4><div class="value">${(ind.macd || 0).toFixed(2)}</div></div>
+          <div class="indicator-card"><h4>SMA 20</h4><div class="value">$${(ind.sma20 || 0).toFixed(2)}</div></div>
+          <div class="indicator-card"><h4>SMA 50</h4><div class="value">$${(ind.sma50 || 0).toFixed(2)}</div></div>
+          <div class="indicator-card"><h4>SMA 200</h4><div class="value">$${(ind.sma200 || 0).toFixed(2)}</div></div>
+          <div class="indicator-card"><h4>Bollinger Upper</h4><div class="value">$${(ind.bollingerUpper || 0).toFixed(2)}</div></div>
+          <div class="indicator-card"><h4>Bollinger Lower</h4><div class="value">$${(ind.bollingerLower || 0).toFixed(2)}</div></div>
+          <div class="indicator-card"><h4>ATR</h4><div class="value">${(ind.atr || 0).toFixed(2)}</div></div>
+          <div class="indicator-card"><h4>ADX</h4><div class="value">${(ind.adx || 0).toFixed(1)}</div></div>
+          <div class="indicator-card"><h4>CCI</h4><div class="value">${(ind.cci || 0).toFixed(1)}</div></div>
+          <div class="indicator-card"><h4>ROC</h4><div class="value">${(ind.roc || 0).toFixed(2)}%</div></div>
+          <div class="indicator-card"><h4>Williams %R</h4><div class="value">${(ind.williams || 0).toFixed(1)}</div></div>
         </div>
         <div class="signals-section">
-          <h3>Trading Signals (${data.signalStrength})</h3>
+          <h3>Trading Signals (${data.signalStrength || 'NEUTRAL'})</h3>
       `;
 
       if (data.signals && data.signals.length > 0) {
@@ -365,7 +371,7 @@
           html += `
             <div class="signal-item">
               <div class="signal-type">${signal.type} - ${signal.action}</div>
-              <div class="signal-description">${signal.description} (${signal.confidence.toFixed(0)}% confidence)</div>
+              <div class="signal-description">${signal.description} (${(signal.confidence || 0).toFixed(0)}% confidence)</div>
             </div>
           `;
         });
