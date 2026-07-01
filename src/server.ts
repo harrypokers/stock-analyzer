@@ -8,6 +8,13 @@ import { analyzePatterns, calculateSignalStrength } from "./patterns.js";
 import { authenticate, login } from "./auth.js";
 import { STOCK_LIST } from "./stocks.js";
 import { scoreStock, StockScore } from "./scoring.js";
+import {
+  createPortfolio,
+  executeTradeSignal,
+  updatePortfolioValue,
+  calculateMetrics,
+  PortfolioState,
+} from "./portfolio.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,10 +25,13 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// In-memory user storage for demo
+// In-memory user storage
 const users: { [key: string]: string } = {
   demo: "demo123",
 };
+
+// In-memory portfolio storage
+const portfolios: { [key: string]: PortfolioState } = {};
 
 // Cache for screener results
 let screenerCache: { stocks: StockScore[]; timestamp: number } | null = null;
@@ -70,6 +80,12 @@ app.post("/api/login", async (req, res) => {
     }
 
     const token = Buffer.from(`${username}:${password}`).toString("base64");
+    
+    // Create portfolio for user if doesn't exist
+    if (!portfolios[username]) {
+      portfolios[username] = createPortfolio();
+    }
+
     res.json({
       message: "Login successful",
       user: { id: Math.random(), username },
@@ -81,17 +97,56 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-// Stock screener - returns top 100 stocks ranked by score
+// Portfolio endpoints
+app.get("/api/portfolio", authenticate, async (req, res) => {
+  try {
+    const username = (req as any).user?.username;
+    if (!username) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    let portfolio = portfolios[username];
+    if (!portfolio) {
+      portfolio = createPortfolio();
+      portfolios[username] = portfolio;
+    }
+
+    const metrics = calculateMetrics(portfolio);
+
+    res.json({
+      portfolio,
+      metrics,
+    });
+  } catch (error) {
+    console.error("Portfolio error:", error);
+    res.status(500).json({ error: "Failed to fetch portfolio" });
+  }
+});
+
+app.post("/api/portfolio/reset", authenticate, async (req, res) => {
+  try {
+    const username = (req as any).user?.username;
+    if (!username) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    portfolios[username] = createPortfolio();
+    res.json({ message: "Portfolio reset", portfolio: portfolios[username] });
+  } catch (error) {
+    console.error("Reset error:", error);
+    res.status(500).json({ error: "Failed to reset portfolio" });
+  }
+});
+
+// Stock screener
 app.get("/api/screener", authenticate, async (req, res) => {
   try {
-    // Check cache
     if (screenerCache && Date.now() - screenerCache.timestamp < CACHE_DURATION) {
       return res.json(screenerCache.stocks);
     }
 
     const scores: StockScore[] = [];
 
-    // Score all stocks
     for (const stock of STOCK_LIST) {
       try {
         const historicalData = await getHistoricalData(stock.symbol, 365);
@@ -104,10 +159,7 @@ app.get("/api/screener", authenticate, async (req, res) => {
       }
     }
 
-    // Sort by score (highest first)
     scores.sort((a, b) => b.score - a.score);
-
-    // Cache results
     screenerCache = { stocks: scores, timestamp: Date.now() };
 
     res.json(scores);
@@ -117,7 +169,7 @@ app.get("/api/screener", authenticate, async (req, res) => {
   }
 });
 
-// Protected endpoints
+// Stock analysis
 app.get("/api/search", authenticate, async (req, res) => {
   try {
     const query = req.query.q as string;
@@ -179,7 +231,7 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// Static files and catch-all
+// Static files
 app.use(express.static(path.join(__dirname, "../public")));
 
 app.get("*", (req, res) => {
