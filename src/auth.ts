@@ -1,9 +1,13 @@
 import { Request, Response, NextFunction } from "express";
-import { getUserByUsername } from "./db.js";
 
 export interface AuthRequest extends Request {
   user?: { id: number; username: string };
 }
+
+// In-memory user storage
+const users: { [key: string]: string } = {
+  demo: "demo123",
+};
 
 export async function authenticate(
   req: AuthRequest,
@@ -20,13 +24,11 @@ export async function authenticate(
     const credentials = Buffer.from(authHeader.slice(6), "base64").toString();
     const [username, password] = credentials.split(":");
 
-    const user = await getUserByUsername(username);
-
-    if (!user || user.password !== password) {
+    if (!users[username] || users[username] !== password) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    req.user = { id: user.id, username: user.username };
+    req.user = { id: Math.random(), username };
     next();
   } catch (error) {
     res.status(401).json({ error: "Unauthorized" });
@@ -34,11 +36,17 @@ export async function authenticate(
 }
 
 export async function login(username: string, password: string) {
-  const user = await getUserByUsername(username);
-
-  if (!user || user.password !== password) {
+  if (!users[username] || users[username] !== password) {
     return null;
   }
 
-  return { id: user.id, username: user.username };
+  return { id: Math.random(), username };
+}
+
+export function registerUser(username: string, password: string) {
+  if (users[username]) {
+    return null;
+  }
+  users[username] = password;
+  return { id: Math.random(), username };
 }
