@@ -6,6 +6,8 @@ import { getStockData, getHistoricalData, searchStocks } from "./avanza.js";
 import { calculateAllIndicators } from "./indicators.js";
 import { analyzePatterns, calculateSignalStrength } from "./patterns.js";
 import { authenticate, login } from "./auth.js";
+import { STOCK_LIST } from "./stocks.js";
+import { scoreStock, StockScore } from "./scoring.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +22,10 @@ app.use(express.json());
 const users: { [key: string]: string } = {
   demo: "demo123",
 };
+
+// Cache for screener results
+let screenerCache: { stocks: StockScore[]; timestamp: number } | null = null;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 // Auth endpoints
 app.post("/api/register", async (req, res) => {
@@ -72,6 +78,42 @@ app.post("/api/login", async (req, res) => {
   } catch (error) {
     console.error("Login error:", error);
     res.status(500).json({ error: "Login failed" });
+  }
+});
+
+// Stock screener - returns top 100 stocks ranked by score
+app.get("/api/screener", authenticate, async (req, res) => {
+  try {
+    // Check cache
+    if (screenerCache && Date.now() - screenerCache.timestamp < CACHE_DURATION) {
+      return res.json(screenerCache.stocks);
+    }
+
+    const scores: StockScore[] = [];
+
+    // Score all stocks
+    for (const stock of STOCK_LIST) {
+      try {
+        const historicalData = await getHistoricalData(stock.symbol, 365);
+        if (historicalData.length > 0) {
+          const scored = scoreStock(stock.symbol, stock.name, stock.sector, historicalData);
+          scores.push(scored);
+        }
+      } catch (err) {
+        console.error(`Error scoring ${stock.symbol}:`, err);
+      }
+    }
+
+    // Sort by score (highest first)
+    scores.sort((a, b) => b.score - a.score);
+
+    // Cache results
+    screenerCache = { stocks: scores, timestamp: Date.now() };
+
+    res.json(scores);
+  } catch (error) {
+    console.error("Screener error:", error);
+    res.status(500).json({ error: "Screener failed" });
   }
 });
 
