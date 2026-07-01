@@ -1,4 +1,4 @@
-export interface PricePoint {
+interface PriceData {
   date: string;
   open: number;
   high: number;
@@ -7,7 +7,7 @@ export interface PricePoint {
   volume: number;
 }
 
-export interface Indicators {
+interface Indicators {
   rsi: number;
   macd: number;
   macdSignal: number;
@@ -25,78 +25,9 @@ export interface Indicators {
   stochasticD: number;
 }
 
-export function calculateSMA(prices: number[], period: number): number {
-  if (prices.length < period) return 0;
-  const sum = prices.slice(-period).reduce((a, b) => a + b, 0);
-  return sum / period;
-}
+export function calculateAllIndicators(prices: PriceData[]): Indicators {
+  const closes = prices.map((p) => p.close);
 
-export function calculateEMA(prices: number[], period: number): number {
-  if (prices.length < period) return 0;
-  const multiplier = 2 / (period + 1);
-  let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  for (let i = period; i < prices.length; i++) {
-    ema = prices[i] * multiplier + ema * (1 - multiplier);
-  }
-  return ema;
-}
-
-export function calculateRSI(prices: number[], period: number = 14): number {
-  if (prices.length < period + 1) return 0;
-  let gains = 0, losses = 0;
-  for (let i = prices.length - period; i < prices.length; i++) {
-    const diff = prices[i] - prices[i - 1];
-    if (diff > 0) gains += diff;
-    else losses += Math.abs(diff);
-  }
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-  const rs = avgGain / avgLoss;
-  return 100 - 100 / (1 + rs);
-}
-
-export function calculateMACD(prices: number[]): { macd: number; signal: number; histogram: number } {
-  const ema12 = calculateEMA(prices, 12);
-  const ema26 = calculateEMA(prices, 26);
-  const macd = ema12 - ema26;
-  const signal = calculateEMA([macd], 9);
-  return { macd, signal, histogram: macd - signal };
-}
-
-export function calculateBollingerBands(prices: number[], period: number = 20, stdDev: number = 2): { upper: number; middle: number; lower: number } {
-  const middle = calculateSMA(prices, period);
-  const variance = prices.slice(-period).reduce((sum, price) => sum + Math.pow(price - middle, 2), 0) / period;
-  const std = Math.sqrt(variance);
-  return { upper: middle + std * stdDev, middle, lower: middle - std * stdDev };
-}
-
-export function calculateATR(data: PricePoint[], period: number = 14): number {
-  if (data.length < period + 1) return 0;
-  let trSum = 0;
-  for (let i = data.length - period; i < data.length; i++) {
-    const high = data[i].high;
-    const low = data[i].low;
-    const prevClose = i > 0 ? data[i - 1].close : data[i].close;
-    const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
-    trSum += tr;
-  }
-  return trSum / period;
-}
-
-export function calculateStochastic(data: PricePoint[], period: number = 14): { k: number; d: number } {
-  if (data.length < period) return { k: 0, d: 0 };
-  const closes = data.slice(-period).map((d) => d.close);
-  const highs = data.slice(-period).map((d) => d.high);
-  const lows = data.slice(-period).map((d) => d.low);
-  const highestHigh = Math.max(...highs);
-  const lowestLow = Math.min(...lows);
-  const k = ((closes[closes.length - 1] - lowestLow) / (highestHigh - lowestLow)) * 100;
-  const d = (k + (k > 50 ? 50 : 0)) / 2;
-  return { k, d };
-}
-
-export function calculateAllIndicators(data: PricePoint[]): Indicators {
-  const closes = data.map((d) => d.close);
   return {
     rsi: calculateRSI(closes),
     macd: calculateMACD(closes).macd,
@@ -107,11 +38,93 @@ export function calculateAllIndicators(data: PricePoint[]): Indicators {
     sma200: calculateSMA(closes, 200),
     ema12: calculateEMA(closes, 12),
     ema26: calculateEMA(closes, 26),
-    bollingerUpper: calculateBollingerBands(closes).upper,
-    bollingerMiddle: calculateBollingerBands(closes).middle,
-    bollingerLower: calculateBollingerBands(closes).lower,
-    atr: calculateATR(data),
-    stochasticK: calculateStochastic(data).k,
-    stochasticD: calculateStochastic(data).d,
+    bollingerUpper: calculateBollinger(closes).upper,
+    bollingerMiddle: calculateBollinger(closes).middle,
+    bollingerLower: calculateBollinger(closes).lower,
+    atr: calculateATR(prices),
+    stochasticK: calculateStochastic(prices).k,
+    stochasticD: calculateStochastic(prices).d,
   };
+}
+
+function calculateSMA(prices: number[], period: number): number {
+  const slice = prices.slice(-period);
+  return slice.reduce((a, b) => a + b, 0) / slice.length;
+}
+
+function calculateEMA(prices: number[], period: number): number {
+  const k = 2 / (period + 1);
+  let ema = prices[0];
+  for (let i = 1; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+function calculateRSI(prices: number[], period: number = 14): number {
+  const changes = [];
+  for (let i = 1; i < prices.length; i++) {
+    changes.push(prices[i] - prices[i - 1]);
+  }
+
+  const gains = changes.filter((c) => c > 0).reduce((a, b) => a + b, 0) / period;
+  const losses =
+    Math.abs(changes.filter((c) => c < 0).reduce((a, b) => a + b, 0)) / period;
+
+  const rs = gains / (losses || 1);
+  return 100 - 100 / (1 + rs);
+}
+
+function calculateMACD(
+  prices: number[]
+): { macd: number; signal: number; histogram: number } {
+  const ema12 = calculateEMA(prices, 12);
+  const ema26 = calculateEMA(prices, 26);
+  const macd = ema12 - ema26;
+  const signal = (macd + calculateEMA(prices, 9)) / 2;
+  return { macd, signal, histogram: macd - signal };
+}
+
+function calculateBollinger(
+  prices: number[]
+): { upper: number; middle: number; lower: number } {
+  const period = 20;
+  const slice = prices.slice(-period);
+  const middle = slice.reduce((a, b) => a + b, 0) / slice.length;
+  const variance =
+    slice.reduce((a, b) => a + Math.pow(b - middle, 2), 0) / slice.length;
+  const stdDev = Math.sqrt(variance);
+  return {
+    upper: middle + stdDev * 2,
+    middle,
+    lower: middle - stdDev * 2,
+  };
+}
+
+function calculateATR(prices: PriceData[], period: number = 14): number {
+  const trs = [];
+  for (let i = 1; i < prices.length; i++) {
+    const tr = Math.max(
+      prices[i].high - prices[i].low,
+      Math.abs(prices[i].high - prices[i - 1].close),
+      Math.abs(prices[i].low - prices[i - 1].close)
+    );
+    trs.push(tr);
+  }
+  return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
+}
+
+function calculateStochastic(
+  prices: PriceData[]
+): { k: number; d: number } {
+  const period = 14;
+  const slice = prices.slice(-period);
+  const low = Math.min(...slice.map((p) => p.low));
+  const high = Math.max(...slice.map((p) => p.high));
+  const close = prices[prices.length - 1].close;
+
+  const k = ((close - low) / (high - low)) * 100;
+  const d = k; // Simplified
+
+  return { k, d };
 }
