@@ -2,10 +2,11 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
-import pool, { initDb } from "./db.js";
+import pool, { initDb, createUser, getUserByUsername } from "./db.js";
 import { getStockData, getHistoricalData, searchStocks } from "./avanza.js";
 import { calculateAllIndicators } from "./indicators.js";
 import { analyzePatterns, calculateSignalStrength } from "./patterns.js";
+import { authenticate, login, AuthRequest } from "./auth.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,14 +16,71 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "../public")));
 
 initDb().catch(err => {
   console.error("Failed to initialize database:", err);
   process.exit(1);
 });
 
-app.get("/api/search", async (req, res) => {
+// Auth endpoints (BEFORE static files)
+app.post("/api/register", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password required" });
+    }
+
+    if (username.length < 3 || password.length < 6) {
+      return res.status(400).json({
+        error: "Username must be 3+ chars, password must be 6+ chars",
+      });
+    }
+
+    const existing = await getUserByUsername(username);
+    if (existing) {
+      return res.status(409).json({ error: "Username already exists" });
+    }
+
+    const user = await createUser(username, password);
+    res.status(201).json({
+      message: "User created successfully",
+      user: { id: user.id, username: user.username },
+    });
+  } catch (error) {
+    console.error("Registration error:", error);
+    res.status(500).json({ error: "Registration failed" });
+  }
+});
+
+app.post("/api/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password required" });
+    }
+
+    const user = await login(username, password);
+
+    if (!user) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const token = Buffer.from(`${username}:${password}`).toString("base64");
+    res.json({
+      message: "Login successful",
+      user,
+      token: `Basic ${token}`,
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
+// Protected endpoints
+app.get("/api/search", authenticate, async (req: AuthRequest, res) => {
   try {
     const query = req.query.q as string;
     if (!query) {
@@ -35,7 +93,7 @@ app.get("/api/search", async (req, res) => {
   }
 });
 
-app.get("/api/analyze/:symbol", async (req, res) => {
+app.get("/api/analyze/:symbol", authenticate, async (req: AuthRequest, res) => {
   try {
     const { symbol } = req.params;
     const client = await pool.connect();
@@ -166,7 +224,7 @@ app.get("/api/analyze/:symbol", async (req, res) => {
   }
 });
 
-app.get("/api/signals/:symbol", async (req, res) => {
+app.get("/api/signals/:symbol", authenticate, async (req: AuthRequest, res) => {
   try {
     const { symbol } = req.params;
     const client = await pool.connect();
@@ -192,6 +250,9 @@ app.get("/api/signals/:symbol", async (req, res) => {
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
+
+// Static files and catch-all (AFTER API routes)
+app.use(express.static(path.join(__dirname, "../public")));
 
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "../public/index.html"));
