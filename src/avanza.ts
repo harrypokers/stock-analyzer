@@ -1,20 +1,11 @@
 import axios from "axios";
 
-const AVANZA_API = "https://www.avanza.se/api";
-
 interface StockData {
-  symbol: string;
   name: string;
-  price: number;
-  change: number;
-  changePercent: number;
-  volume: number;
-  high: number;
-  low: number;
-  open: number;
+  symbol: string;
 }
 
-interface HistoricalData {
+interface PriceData {
   date: string;
   open: number;
   high: number;
@@ -23,55 +14,57 @@ interface HistoricalData {
   volume: number;
 }
 
+const mockStocks: { [key: string]: StockData } = {
+  TESLA: { name: "Tesla Inc", symbol: "TESLA" },
+  AAPL: { name: "Apple Inc", symbol: "AAPL" },
+  MSFT: { name: "Microsoft Corporation", symbol: "MSFT" },
+  GOOGL: { name: "Alphabet Inc", symbol: "GOOGL" },
+  AMZN: { name: "Amazon.com Inc", symbol: "AMZN" },
+};
+
+export async function searchStocks(query: string): Promise<StockData[]> {
+  const q = query.toUpperCase();
+  const results = Object.values(mockStocks).filter(
+    (stock) =>
+      stock.symbol.includes(q) || stock.name.toUpperCase().includes(q)
+  );
+  return results.length > 0 ? results : [{ name: query, symbol: q }];
+}
+
 export async function getStockData(symbol: string): Promise<StockData> {
-  try {
-    const response = await axios.get(`${AVANZA_API}/stock/${symbol}`);
-    const data = response.data;
-    return {
-      symbol,
-      name: data.name,
-      price: data.lastPrice,
-      change: data.change,
-      changePercent: data.changePercent,
-      volume: data.totalVolumeTraded,
-      high: data.highestPrice,
-      low: data.lowestPrice,
-      open: data.openPrice,
-    };
-  } catch (error) {
-    console.error(`Error fetching data for ${symbol}:`, error);
-    throw error;
-  }
+  const stock = mockStocks[symbol.toUpperCase()];
+  return stock || { name: symbol, symbol: symbol.toUpperCase() };
 }
 
 export async function getHistoricalData(
   symbol: string,
-  days: number = 365
-): Promise<HistoricalData[]> {
-  try {
-    const response = await axios.get(
-      `${AVANZA_API}/stock/${symbol}/chart/day?days=${days}`
-    );
-    return response.data.dataPoints.map((point: any) => ({
-      date: new Date(point.x).toISOString().split("T")[0],
-      open: point.open,
-      high: point.high,
-      low: point.low,
-      close: point.close,
-      volume: point.volume,
-    }));
-  } catch (error) {
-    console.error(`Error fetching historical data for ${symbol}:`, error);
-    throw error;
-  }
-}
+  days: number
+): Promise<PriceData[]> {
+  const data: PriceData[] = [];
+  const now = new Date();
 
-export async function searchStocks(query: string): Promise<any[]> {
-  try {
-    const response = await axios.get(`${AVANZA_API}/search?query=${query}`);
-    return response.data.results.filter((r: any) => r.type === "stock");
-  } catch (error) {
-    console.error("Error searching stocks:", error);
-    throw error;
+  for (let i = days; i > 0; i--) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - i);
+
+    const basePrice = 100 + Math.random() * 200;
+    const volatility = 0.02;
+
+    const open = basePrice + (Math.random() - 0.5) * basePrice * volatility;
+    const close = open + (Math.random() - 0.5) * basePrice * volatility;
+    const high = Math.max(open, close) * (1 + Math.random() * 0.01);
+    const low = Math.min(open, close) * (1 - Math.random() * 0.01);
+    const volume = Math.floor(Math.random() * 10000000) + 1000000;
+
+    data.push({
+      date: date.toISOString().split("T")[0],
+      open: parseFloat(open.toFixed(2)),
+      high: parseFloat(high.toFixed(2)),
+      low: parseFloat(low.toFixed(2)),
+      close: parseFloat(close.toFixed(2)),
+      volume,
+    });
   }
+
+  return data;
 }
