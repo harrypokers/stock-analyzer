@@ -23,6 +23,12 @@ interface Indicators {
   atr: number;
   stochasticK: number;
   stochasticD: number;
+  adx: number;
+  cci: number;
+  obv: number;
+  vpt: number;
+  roc: number;
+  williams: number;
 }
 
 interface Signal {
@@ -37,7 +43,18 @@ export function analyzePatterns(
   indicators: Indicators
 ): Signal[] {
   const signals: Signal[] = [];
-  const currentPrice = prices[prices.length - 1].close;
+  const currentPrice = prices[prices.length - 1]?.close || 0;
+
+  if (!indicators || !currentPrice) {
+    return [
+      {
+        type: "Insufficient Data",
+        confidence: 0,
+        description: "Not enough data to generate signals",
+        action: "HOLD",
+      },
+    ];
+  }
 
   // RSI signals
   if (indicators.rsi < 30) {
@@ -77,7 +94,10 @@ export function analyzePatterns(
   }
 
   // Moving average signals
-  if (currentPrice > indicators.sma20 && indicators.sma20 > indicators.sma50) {
+  if (
+    currentPrice > indicators.sma20 &&
+    indicators.sma20 > indicators.sma50
+  ) {
     signals.push({
       type: "Golden Cross",
       confidence: 80,
@@ -113,6 +133,33 @@ export function analyzePatterns(
     });
   }
 
+  // Stochastic signals
+  if (indicators.stochasticK < 20) {
+    signals.push({
+      type: "Stochastic Oversold",
+      confidence: 60,
+      description: "Stochastic K below 20",
+      action: "BUY",
+    });
+  } else if (indicators.stochasticK > 80) {
+    signals.push({
+      type: "Stochastic Overbought",
+      confidence: 60,
+      description: "Stochastic K above 80",
+      action: "SELL",
+    });
+  }
+
+  // ADX trend strength
+  if (indicators.adx > 25) {
+    signals.push({
+      type: "Strong Trend",
+      confidence: 70,
+      description: "ADX above 25 indicates strong trend",
+      action: "BUY",
+    });
+  }
+
   return signals.length > 0
     ? signals
     : [
@@ -131,7 +178,7 @@ export function calculateSignalStrength(signals: Signal[]): string {
   const buyCount = signals.filter((s) => s.action === "BUY").length;
   const sellCount = signals.filter((s) => s.action === "SELL").length;
 
-  if (buyCount > sellCount) return "BULLISH";
-  if (sellCount > buyCount) return "BEARISH";
+  if (buyCount > sellCount * 1.5) return "BULLISH";
+  if (sellCount > buyCount * 1.5) return "BEARISH";
   return "NEUTRAL";
 }
